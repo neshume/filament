@@ -73,6 +73,7 @@ struct VulkanCommandBuffer {
 struct VulkanTimestamps {
     VkQueryPool pool;
     utils::bitset32 used;
+    utils::Mutex mutex;
 };
 
 // For now we only support a single-device, single-instance scenario. Our concept of "context" is a
@@ -132,6 +133,7 @@ struct VulkanSurfaceContext {
     VkSemaphore imageAvailable;
     VkSemaphore renderingFinished;
     VulkanAttachment depth;
+    bool suboptimal;
     void* nativeWindow;
 };
 

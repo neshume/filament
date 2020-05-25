@@ -35,26 +35,9 @@
 #pragma clang diagnostic ignored "-Wreturn-stack-address"
 #pragma clang diagnostic ignored "-Wunused-parameter"
 
-// In debug builds, we enable validation layers and set up a debug callback if the extension is
-// available. Caution: the debug callback causes a null pointer dereference with optimized builds.
-//
-// To enable validation layers in Android, also be sure to set the jniLibs property in the gradle
-// file for filament-android as follows. This copies the appropriate libraries from the NDK to the
-// device. This makes the aar much larger, so it should be avoided in release builds.
-//
-// sourceSets { main { jniLibs {
-//   srcDirs = ["${android.ndkDirectory}/sources/third_party/vulkan/src/build-android/jniLibs"]
-// } } }
-//
-#if !defined(NDEBUG)
-#define ENABLE_VALIDATION 1
-#else
-#define ENABLE_VALIDATION 0
-#endif
-
 static constexpr int SWAP_CHAIN_MAX_ATTEMPTS = 16;
 
-#if ENABLE_VALIDATION
+#if VK_ENABLE_VALIDATION
 
 namespace {
 
@@ -95,7 +78,7 @@ VulkanDriver::VulkanDriver(VulkanPlatform* platform,
     ASSERT_POSTCONDITION(bluevk::initialize(), "BlueVK is unable to load entry points.");
 
     VkInstanceCreateInfo instanceCreateInfo = {};
-#if ENABLE_VALIDATION
+#if VK_ENABLE_VALIDATION
     const utils::StaticString DESIRED_LAYERS[] = {
 #if defined(ANDROID)
         // TODO: use VK_LAYER_KHRONOS_validation instead of these layers after it becomes available
@@ -138,7 +121,7 @@ VulkanDriver::VulkanDriver(VulkanPlatform* platform,
                 << "Please ensure that VK_LAYER_PATH is set correctly." << utils::io::endl;
 #endif
     }
-#endif // ENABLE_VALIDATION
+#endif // VK_ENABLE_VALIDATION
 
     // Create the Vulkan instance.
     VkApplicationInfo appInfo = {};
@@ -154,7 +137,7 @@ VulkanDriver::VulkanDriver(VulkanPlatform* platform,
     UTILS_UNUSED const PFN_vkCreateDebugReportCallbackEXT createDebugReportCallback =
             vkCreateDebugReportCallbackEXT;
 
-#if ENABLE_VALIDATION
+#if VK_ENABLE_VALIDATION
     if (createDebugReportCallback) {
         const VkDebugReportCallbackCreateInfoEXT cbinfo = {
             VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
@@ -474,6 +457,7 @@ void VulkanDriver::createSyncR(Handle<HwSync> sh, int) {
 void VulkanDriver::createSwapChainR(Handle<HwSwapChain> sch, void* nativeWindow, uint64_t flags) {
     auto* swapChain = construct_handle<VulkanSwapChain>(mHandleMap, sch);
     VulkanSurfaceContext& sc = swapChain->surfaceContext;
+    sc.suboptimal = false;
     sc.surface = (VkSurfaceKHR) mContextManager.createVkSurfaceKHR(nativeWindow, mContext.instance);
     sc.nativeWindow = nativeWindow;
     mContextManager.getClientExtent(nativeWindow, &sc.clientSize.width, &sc.clientSize.height);
@@ -756,6 +740,14 @@ void VulkanDriver::cancelExternalImage(void* image) {
 bool VulkanDriver::getTimerQueryValue(Handle<HwTimerQuery> tqh, uint64_t* elapsedTime) {
     VulkanTimerQuery* vtq = handle_cast<VulkanTimerQuery>(mHandleMap, tqh);
 
+    // This is a synchronous call and might occur before beginTimerQuery has written anything into
+    // the command buffer, which is an error according to the validation layer that ships in the
+    // Android NDK.  Even when AVAILABILITY_BIT is set, validation seems to require that the
+    // timestamp has at least been written into the command buffer.
+    if (!vtq->ready.load()) {
+        return false;
+    }
+
     uint64_t results[4] = {};
     size_t dataSize = sizeof(results);
     VkDeviceSize stride = sizeof(uint64_t);
@@ -1011,11 +1003,21 @@ void VulkanDriver::commit(Handle<HwSwapChain> sch) {
         .pImageIndices = &surface.currentSwapIndex,
     };
     result = vkQueuePresentKHR(surface.presentQueue, &presentInfo);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+
+    // We should be notified of a suboptimal surface, but it should not cause a cascade of
+    // log messages, or a loop of re-creations.
+    if (result == VK_SUBOPTIMAL_KHR && !surface.suboptimal) {
+        utils::slog.w << "Vulkan Driver: Suboptimal swap chain." << utils::io::endl;
+        surface.suboptimal = true;
+    }
+
+    // The surface can be "out of date" when it has been resized, which is not an error.
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         refreshSwapChain();
         return;
     }
-    ASSERT_POSTCONDITION(result == VK_SUCCESS, "vkQueuePresentKHR error.");
+
+    assert(result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR);
 }
 
 void VulkanDriver::bindUniformBuffer(size_t index, Handle<HwUniformBuffer> ubh) {
@@ -1315,6 +1317,7 @@ void VulkanDriver::beginTimerQuery(Handle<HwTimerQuery> tqh) {
 
     vkCmdResetQueryPool(commands->cmdbuffer, mContext.timestamps.pool, index, 2);
     vkCmdWriteTimestamp(commands->cmdbuffer, stage, mContext.timestamps.pool, index);
+    vtq->ready.store(true);
 }
 
 void VulkanDriver::endTimerQuery(Handle<HwTimerQuery> tqh) {

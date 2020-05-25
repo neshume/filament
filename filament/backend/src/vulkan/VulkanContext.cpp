@@ -202,10 +202,13 @@ void createVirtualDevice(VulkanContext& context) {
     VkQueryPoolCreateInfo tqpCreateInfo = {};
     tqpCreateInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
     tqpCreateInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+
+    std::unique_lock<utils::Mutex> timestamps_lock(context.timestamps.mutex);
     tqpCreateInfo.queryCount = context.timestamps.used.size() * 2;
     result = vkCreateQueryPool(context.device, &tqpCreateInfo, VKALLOC, &context.timestamps.pool);
     ASSERT_POSTCONDITION(result == VK_SUCCESS, "vkCreateQueryPool error.");
     context.timestamps.used.reset();
+    timestamps_lock.unlock();
 
     const VmaVulkanFunctions funcs {
         .vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties,
@@ -488,10 +491,21 @@ bool acquireSwapCommandBuffer(VulkanContext& context) {
     VulkanSurfaceContext& surface = *context.currentSurface;
     VkResult result = vkAcquireNextImageKHR(context.device, surface.swapchain,
             UINT64_MAX, surface.imageAvailable, VK_NULL_HANDLE, &surface.currentSwapIndex);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+
+    // We should be notified of a suboptimal surface, but it should not cause a cascade of
+    // log messages or a loop of re-creations.
+    if (result == VK_SUBOPTIMAL_KHR && !surface.suboptimal) {
+        utils::slog.w << "Vulkan Driver: Suboptimal swap chain." << utils::io::endl;
+        surface.suboptimal = true;
+    }
+
+    // The surface can be "out of date" when it has been resized, which is not an error.
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         return false;
     }
-    ASSERT_POSTCONDITION(result == VK_SUCCESS, "Unable to acquire image from swap chain.");
+
+    assert(result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR);
+
     SwapContext& swap = getSwapContext(context);
 
     // Ensure that the previous submission of this command buffer has finished.
