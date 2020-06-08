@@ -66,6 +66,13 @@ export interface View$AmbientOcclusionOptions {
     quality?: View$QualityLevel;
 }
 
+export interface View$DepthOfFieldOptions {
+    focusDistance?: number;
+    blurScale?: number;
+    maxApertureDiameter?: number;
+    enabled?: boolean;
+}
+
 export interface View$BloomOptions {
     dirtStrength?: number;
     strength?: number;
@@ -85,6 +92,11 @@ export class Entity {
 
 export class EntityVector {
     public get(index: number): Entity;
+    public size(): number;
+}
+
+export class MaterialInstanceVector {
+    public get(index: number): MaterialInstance;
     public size(): number;
 }
 
@@ -374,9 +386,10 @@ export class View {
     public setVisibleLayers(select: number, values: number): void;
     public setRenderTarget(renderTarget: RenderTarget): void;
     public setAmbientOcclusionOptions(options: View$AmbientOcclusionOptions): void;
+    public setDepthOfFieldOptions(options: View$DepthOfFieldOptions): void;
     public setBloomOptions(options: View$BloomOptions): void;
-    public setAmbientOcclusion(enable: boolean): void;
-    public getAmbientOcclusion(): boolean;
+    public setAmbientOcclusion(ambientOcclusion: View$AmbientOcclusion): void;
+    public getAmbientOcclusion(): View$AmbientOcclusion;
     public setBlendMode(mode: View$BlendMode): void;
     public getBlendMode(): View$BlendMode;
 }
@@ -442,16 +455,22 @@ export class Engine {
 export class gltfio$AssetLoader {
     public createAssetFromJson(buffer: any): gltfio$FilamentAsset;
     public createAssetFromBinary(buffer: any): gltfio$FilamentAsset;
+    public createInstancedAsset(buffer: any,
+            instances: (gltfio$FilamentInstance | null)[]): gltfio$FilamentAsset;
     public delete(): void;
 }
 
 export class gltfio$FilamentAsset {
     public loadResources(onDone: () => void|null, onFetched: (s: string) => void|null,
             basePath: string|null, asyncInterval: number|null): void;
-    public getEntities(): EntityVector;
+    public getEntities(): Entity[];
+    public getEntitiesByName(name: string): Entity[];
+    public getEntityByName(name: string): Entity;
+    public getEntitiesByPrefix(name: string): Entity[];
+    public getLightEntities(): Entity[];
     public getRoot(): Entity;
     public popRenderable(): Entity;
-    public getMaterialInstances(): MaterialInstance[];
+    public getMaterialInstances(): MaterialInstanceVector;
     public getResourceUris(): string[];
     public getBoundingBox(): Aabb;
     public getName(entity: Entity): string;
@@ -459,6 +478,12 @@ export class gltfio$FilamentAsset {
     public getWireframe(): Entity;
     public getEngine(): Engine;
     public releaseSourceData(): void;
+}
+
+export class gltfio$FilamentInstance {
+    public getEntities(): EntityVector;
+    public getRoot(): Entity;
+    public getAnimator(): gltfio$Animator;
 }
 
 export class gltfio$Animator {

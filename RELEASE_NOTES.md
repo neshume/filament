@@ -5,7 +5,22 @@ A new header is inserted each time a *tag* is created.
 
 ## Next release
 
-- Add missing JavaScript API for View::setVisibleLayers().
+- gltfio now supports simple instancing of entire assets.
+- gltfio has improved performance and assumes assets are well-formed.
+- gltfio now supports name and prefix lookup for entities.
+- ModelViewer now allows resources to be fetched off the UI thread.
+- Add missing JavaScript API for `View::setVisibleLayers()`.
+- Add support for DOF with Metal backend.
+- SSAO now has an optional high(er) quality upsampler.
+- Tone mappping now uses the real ACES tone mapper, applied in the proper color space.
+- Tone mapping is now applied via a LUT.
+- `View::setToneMapping` is deprecated, use `View::setColorGrading` instead. (⚠️ **API change**)
+- Color grading capabilities per View: white balance (temperature/tint), channel mixer,
+  tonal ranges (shadows/mid-tones/highlights), ASC CDL (slope/offset/power), contrast, saturation,
+  and curves.
+- Fixed bug in the Metal backend when SSR and MSAA were turned on.
+- Fixed Metal issue with `BufferDescriptor` and `PixelBufferDescriptor`s not being called on
+  the application thread.
 
 ## v1.7.0
 

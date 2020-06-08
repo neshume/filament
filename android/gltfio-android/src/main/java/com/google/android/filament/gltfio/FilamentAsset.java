@@ -95,11 +95,45 @@ public class FilamentAsset {
      * Gets the list of entities, one for each glTF node.
      *
      * <p>All of these have a transform component. Some of the returned entities may also have a
-     * renderable component.</p>
+     * renderable or light component.</p>
      */
     public @NonNull @Entity int[] getEntities() {
         int[] result = new int[nGetEntityCount(mNativeObject)];
         nGetEntities(mNativeObject, result);
+        return result;
+    }
+
+    /**
+     * Gets only the entities that have light components.
+     */
+    public @NonNull @Entity int[] getLightEntities() {
+        int[] result = new int[nGetLightEntityCount(mNativeObject)];
+        nGetLightEntities(mNativeObject, result);
+        return result;
+    }
+
+    /**
+     * Returns the first entity with the given name, or 0 if none exist.
+     */
+    public @Entity int getFirstEntityByName(String name) {
+        return nGetFirstEntityByName(mNativeObject, name);
+    }
+
+    /**
+     * Gets a list of entities with the given name.
+     */
+    public @NonNull @Entity int[] getEntitiesByName(String name) {
+        int[] result = new int[nGetEntitiesByName(mNativeObject, name, null)];
+        nGetEntitiesByName(mNativeObject, name, result);
+        return result;
+    }
+
+    /**
+     * Gets a list of entities whose names start with the given prefix.
+     */
+    public @NonNull @Entity int[] getEntitiesByPrefix(String prefix) {
+        int[] result = new int[nGetEntitiesByPrefix(mNativeObject, prefix, null)];
+        nGetEntitiesByPrefix(mNativeObject, prefix, result);
         return result;
     }
 
@@ -173,6 +207,13 @@ public class FilamentAsset {
 
     private static native int nGetEntityCount(long nativeAsset);
     private static native void nGetEntities(long nativeAsset, int[] result);
+
+    private static native int nGetFirstEntityByName(long nativeAsset, String name);
+    private static native int nGetEntitiesByName(long nativeAsset, String name, int[] result);
+    private static native int nGetEntitiesByPrefix(long nativeAsset, String prefix, int[] result);
+
+    private static native int nGetLightEntityCount(long nativeAsset);
+    private static native void nGetLightEntities(long nativeAsset, int[] result);
 
     private static native int nGetMaterialInstanceCount(long nativeAsset);
     private static native void nGetMaterialInstances(long nativeAsset, long[] nativeResults);

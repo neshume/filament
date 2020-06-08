@@ -31,6 +31,7 @@
 namespace filament {
 
 class Camera;
+class ColorGrading;
 class MaterialInstance;
 class RenderTarget;
 class Scene;
@@ -201,9 +202,10 @@ public:
         float radius = 0.3f;    //!< Ambient Occlusion radius in meters, between 0 and ~10.
         float power = 1.0f;     //!< Controls ambient occlusion's contrast. Must be positive.
         float bias = 0.0005f;   //!< Self-occlusion bias in meters. Use to avoid self-occlusion. Between 0 and a few mm.
-        float resolution = 0.5; //!< How each dimension of the AO buffer is scaled. Must be positive and <= 1.
-        float intensity = 1.0;  //!< Strength of the Ambient Occlusion effect.
+        float resolution = 0.5f;//!< How each dimension of the AO buffer is scaled. Must be either 0.5 or 1.0.
+        float intensity = 1.0f; //!< Strength of the Ambient Occlusion effect.
         QualityLevel quality = QualityLevel::LOW; //!< affects # of samples used for AO.
+        QualityLevel upsampling = QualityLevel::LOW; //!< affects AO buffer upsampling quality.
     };
 
     /**
@@ -233,6 +235,8 @@ public:
 
     /**
      * List of available tone-mapping operators
+     *
+     * @deprecated See ColorGrading
      */
     enum class ToneMapping : uint8_t {
         LINEAR = 0,     //!< Linear tone mapping (i.e. no tone mapping)
@@ -472,14 +476,43 @@ public:
      * Enables or disables tone-mapping in the post-processing stage. Enabled by default.
      *
      * @param type Tone-mapping function.
+     *
+     * @deprecated Use setColorGrading instead
+     * @see setColorGrading
      */
     void setToneMapping(ToneMapping type) noexcept;
 
     /**
      * Returns the tone-mapping function.
      * @return tone-mapping function.
+     *
+     * @deprecated Use getColorGrading instead
+     * @see getColorGrading
      */
     ToneMapping getToneMapping() const noexcept;
+
+    /**
+     * Sets this View's color grading transforms.
+     *
+     * @param colorGrading Associate the specified ColorGrading to this View. A ColorGrading can be
+     *                     associated to several View instances.\n
+     *                     \p colorGrading can be nullptr to dissociate the currently set
+     *                     ColorGrading from this View. Doing so will revert to the use of the
+     *                     default color grading transforms.\n
+     *                     The View doesn't take ownership of the ColorGrading pointer (which
+     *                     acts as a reference).
+     *
+     * @note
+     *  There is no reference-counting.
+     *  Make sure to dissociate a ColorGrading from all Views before destroying it.
+     */
+    void setColorGrading(ColorGrading* colorGrading) noexcept;
+
+    /**
+     * Returns the color grading transforms currently associated to this view.
+     * @return A pointer to the ColorGrading associated to this View.
+     */
+    const ColorGrading* getColorGrading() const noexcept;
 
     /**
      * Enables or disables bloom in the post-processing stage. Disabled by default.
@@ -589,7 +622,7 @@ public:
      *
      * @param enabled true enables post processing, false disables it.
      *
-     * @see setBloomOptions, setToneMapping, setAntiAliasing, setDithering, setSampleCount
+     * @see setBloomOptions, setColorGrading, setAntiAliasing, setDithering, setSampleCount
      */
     void setPostProcessingEnabled(bool enabled) noexcept;
 

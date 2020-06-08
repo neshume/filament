@@ -124,10 +124,12 @@ struct MetalTexture : public HwTexture {
     ~MetalTexture();
 
     void load2DImage(uint32_t level, uint32_t xoffset, uint32_t yoffset, uint32_t width,
-            uint32_t height, PixelBufferDescriptor&& p) noexcept;
-    void loadCubeImage(const FaceOffsets& faceOffsets, int miplevel, PixelBufferDescriptor&& p);
-    void loadSlice(uint32_t level, uint32_t xoffset, uint32_t yoffset, uint32_t width,
-            uint32_t height, uint32_t byteOffset, uint32_t slice,
+            uint32_t height, PixelBufferDescriptor& p) noexcept;
+    void load3DImage(uint32_t level, uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
+            uint32_t width, uint32_t height, uint32_t depth, PixelBufferDescriptor& p) noexcept;
+    void loadCubeImage(const FaceOffsets& faceOffsets, int miplevel, PixelBufferDescriptor& p);
+    void loadSlice(uint32_t level, uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
+            uint32_t width, uint32_t height, uint32_t depth, uint32_t byteOffset, uint32_t slice,
             PixelBufferDescriptor& data, id<MTLBlitCommandEncoder> blitCommandEncoder,
             id<MTLCommandBuffer> blitCommandBuffer) noexcept;
     void updateLodRange(uint32_t level);
@@ -151,32 +153,33 @@ struct MetalSamplerGroup : public HwSamplerGroup {
 class MetalRenderTarget : public HwRenderTarget {
 public:
 
-    struct TargetInfo {
-        uint8_t level;
-        uint16_t layer;
+    struct Attachment {
+        id<MTLTexture> texture = nil;
+        uint8_t level = 0;
+        uint16_t layer = 0;
+
+        explicit operator bool() const {
+            return texture != nil;
+        }
     };
 
     MetalRenderTarget(MetalContext* context, uint32_t width, uint32_t height, uint8_t samples,
-            id<MTLTexture> color, TargetInfo colorInfo, id<MTLTexture> depth, TargetInfo depthInfo);
+            Attachment colorAttachments[4], Attachment depthAttachment);
     explicit MetalRenderTarget(MetalContext* context)
             : HwRenderTarget(0, 0), context(context), defaultRenderTarget(true) {}
 
+    void setUpRenderPassAttachments(MTLRenderPassDescriptor* descriptor, const RenderPassParams& params);
+
     bool isDefaultRenderTarget() const { return defaultRenderTarget; }
     uint8_t getSamples() const { return samples; }
-    MTLLoadAction getLoadAction(const RenderPassParams& params, TargetBufferFlags buffer);
-    MTLStoreAction getStoreAction(const RenderPassParams& params, TargetBufferFlags buffer);
 
-    id<MTLTexture> getColor();
-    id<MTLTexture> getColorResolve();
-    id<MTLTexture> getDepth();
-    id<MTLTexture> getDepthResolve();
-    id<MTLTexture> getBlitColorSource();
-    id<MTLTexture> getBlitDepthSource();
-
-    const TargetInfo& getColorInfo() const { return colorInfo; }
-    const TargetInfo& getDepthInfo() const { return depthInfo; }
+    Attachment getColorAttachment(size_t index);
+    Attachment getDepthAttachment();
 
 private:
+
+    static MTLLoadAction getLoadAction(const RenderPassParams& params, TargetBufferFlags buffer);
+    static MTLStoreAction getStoreAction(const RenderPassParams& params, TargetBufferFlags buffer);
     static id<MTLTexture> createMultisampledTexture(id<MTLDevice> device, MTLPixelFormat format,
             uint32_t width, uint32_t height, uint8_t samples);
 
@@ -184,9 +187,11 @@ private:
     bool defaultRenderTarget = false;
     uint8_t samples = 1;
 
-    id<MTLTexture> color = nil, depth = nil;
-    TargetInfo colorInfo = {}, depthInfo = {};
-    id<MTLTexture> multisampledColor = nil;
+    Attachment color[4] = {};
+    Attachment depth = {};
+
+    // "Sidecar" textures used to implement automatic MSAA resolve.
+    id<MTLTexture> multisampledColor[4] = { 0 };
     id<MTLTexture> multisampledDepth = nil;
 };
 

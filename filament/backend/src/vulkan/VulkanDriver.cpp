@@ -723,6 +723,9 @@ void VulkanDriver::update3DImage(
         uint32_t level, uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
         uint32_t width, uint32_t height, uint32_t depth,
         PixelBufferDescriptor&& data) {
+    assert(xoffset == 0 && yoffset == 0 && zoffset == 0 && "Offsets not yet supported.");
+    handle_cast<VulkanTexture>(mHandleMap, th)->update3DImage(data, width, height, depth, level);
+    scheduleDestroy(std::move(data));
 }
 
 void VulkanDriver::updateCubeImage(Handle<HwTexture> th, uint32_t level,
@@ -1040,9 +1043,19 @@ void VulkanDriver::bindSamplers(size_t index, Handle<HwSamplerGroup> sbh) {
 }
 
 void VulkanDriver::insertEventMarker(char const* string, size_t len) {
+    constexpr float MARKER_COLOR[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    ASSERT_POSTCONDITION(mContext.currentCommands,
+            "Markers can only be inserted within a beginFrame / endFrame.");
+    if (mContext.debugMarkersSupported) {
+        VkDebugMarkerMarkerInfoEXT markerInfo = {};
+        markerInfo.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_MARKER_INFO_EXT;
+        memcpy(markerInfo.color, &MARKER_COLOR[0], sizeof(MARKER_COLOR));
+        markerInfo.pMarkerName = string;
+        vkCmdDebugMarkerInsertEXT(mContext.currentCommands->cmdbuffer, &markerInfo);
+    }
 }
 
-void VulkanDriver::pushGroupMarker(char const* string,  size_t len) {
+void VulkanDriver::pushGroupMarker(char const* string, size_t len) {
     // TODO: Add group marker color to the Driver API
     constexpr float MARKER_COLOR[] = { 0.0f, 1.0f, 0.0f, 1.0f };
     ASSERT_POSTCONDITION(mContext.currentCommands,

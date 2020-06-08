@@ -26,6 +26,7 @@
 
 #include "details/Allocators.h"
 #include "details/Camera.h"
+#include "details/ColorGrading.h"
 #include "details/Froxelizer.h"
 #include "details/RenderTarget.h"
 #include "details/ShadowMap.h"
@@ -205,6 +206,14 @@ public:
         return mToneMapping;
     }
 
+    void setColorGrading(FColorGrading* colorGrading) noexcept {
+        mColorGrading = colorGrading == nullptr ? mDefaultColorGrading : colorGrading;
+    }
+
+    const FColorGrading* getColorGrading() const noexcept {
+        return mColorGrading;
+    }
+
     void setDithering(Dithering dithering) noexcept {
         mDithering = dithering;
     }
@@ -251,7 +260,9 @@ public:
         options.radius = math::max(0.0f, options.radius);
         options.bias = math::clamp(0.0f, 0.1f, options.bias);
         options.power = std::max(0.0f, options.power);
-        options.resolution = math::clamp(0.0f, 1.0f, options.resolution);
+        // snap to the closer of 0.5 or 1.0
+        options.resolution = std::floor(
+                math::clamp(1.0f, 2.0f, options.resolution * 2.0f) + 0.5f) * 0.5f;
         options.intensity = std::max(0.0f, options.intensity);
         mAmbientOcclusionOptions = options;
     }
@@ -387,6 +398,8 @@ private:
     FogOptions mFogOptions;
     DepthOfFieldOptions mDepthOfFieldOptions;
     BlendMode mBlendMode = BlendMode::OPAQUE;
+    const FColorGrading* mColorGrading = nullptr;
+    const FColorGrading* mDefaultColorGrading = nullptr;
 
     DynamicResolutionOptions mDynamicResolution;
     math::float2 mScale = 1.0f;

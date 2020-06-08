@@ -21,7 +21,6 @@
 #include "details/DFG.h"
 #include "details/Froxelizer.h"
 #include "details/IndirectLight.h"
-#include "details/MaterialInstance.h"
 #include "details/Renderer.h"
 #include "details/RenderTarget.h"
 #include "details/Scene.h"
@@ -33,7 +32,6 @@
 #include <private/filament/SibGenerator.h>
 #include <private/filament/UibGenerator.h>
 
-#include <utils/Allocator.h>
 #include <utils/Profiler.h>
 #include <utils/Slice.h>
 #include <utils/Systrace.h>
@@ -43,7 +41,6 @@
 
 #include <memory>
 #include <filament/View.h>
-
 
 using namespace filament::math;
 using namespace utils;
@@ -80,6 +77,8 @@ FView::FView(FEngine& engine)
     mShadowUbh = driver.createUniformBuffer(mShadowUb.getSize(), backend::BufferUsage::DYNAMIC);
 
     mIsDynamicResolutionSupported = driver.isFrameTimeSupported();
+
+    mDefaultColorGrading = mColorGrading = engine.getDefaultColorGrading();
 }
 
 FView::~FView() noexcept = default;
@@ -632,9 +631,18 @@ void FView::prepareViewport(const filament::Viewport &viewport) const noexcept {
 }
 
 void FView::prepareSSAO(Handle<HwTexture> ssao) const noexcept {
+    // High quality sampling is enabled only if AO itself is enabled and upsampling quality is at
+    // least set to high and of course only if upsampling is needed.
+    const bool highQualitySampling = mAmbientOcclusionOptions.upsampling >= QualityLevel::HIGH
+            && mAmbientOcclusionOptions.resolution < 1.0f;
+
+    // LINEAR filtering is only needed when AO is enabled and low-quality upsampling is used.
     mPerViewSb.setSampler(PerViewSib::SSAO, ssao, {
-            .filterMag = SamplerMagFilter::LINEAR
+            .filterMag = mAmbientOcclusion != AmbientOcclusion::NONE && !highQualitySampling ?
+                         SamplerMagFilter::LINEAR : SamplerMagFilter::NEAREST
     });
+    mPerViewUb.setUniform(offsetof(PerViewUib, aoSamplingQuality),
+            mAmbientOcclusion != AmbientOcclusion::NONE && highQualitySampling ? 1.0f : 0.0f);
 }
 
 void FView::prepareSSR(backend::Handle<backend::HwTexture> ssr, float refractionLodOffset) const noexcept {
@@ -813,7 +821,6 @@ Camera& View::getCamera() noexcept {
     return upcast(this)->getCameraUser();
 }
 
-
 void View::setViewport(filament::Viewport const& viewport) noexcept {
     upcast(this)->setViewport(viewport);
 }
@@ -884,6 +891,14 @@ void View::setToneMapping(ToneMapping type) noexcept {
 
 View::ToneMapping View::getToneMapping() const noexcept {
     return upcast(this)->getToneMapping();
+}
+
+void View::setColorGrading(ColorGrading* colorGrading) noexcept {
+    return upcast(this)->setColorGrading(upcast(colorGrading));
+}
+
+const ColorGrading* View::getColorGrading() const noexcept {
+    return upcast(this)->getColorGrading();
 }
 
 void View::setDithering(Dithering dithering) noexcept {

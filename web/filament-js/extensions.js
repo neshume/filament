@@ -26,6 +26,14 @@ function getBufferDescriptor(buffer) {
     return buffer;
 }
 
+Filament.vectorToArray = function(vector) {
+    const result = [];
+    for (let i = 0; i < vector.size(); i++) {
+        result.push(vector.get(i));
+    }
+    return result;
+};
+
 Filament.loadClassExtensions = function() {
 
     /// Engine ::core class::
@@ -44,14 +52,17 @@ Filament.loadClassExtensions = function() {
         };
         options = Object.assign(defaults, options);
 
-        // Create the WebGL 2.0 context and register it with emscripten.
-        const ctx = Filament.createContext(canvas, options);
+        // Create the WebGL 2.0 context.
+        const ctx = canvas.getContext("webgl2", options);
+        Filament.glOptions = options;
+        Filament.glContext = ctx;
 
         // Enable all desired extensions by calling getExtension on each one.
         ctx.getExtension('WEBGL_compressed_texture_s3tc');
         ctx.getExtension('WEBGL_compressed_texture_astc');
         ctx.getExtension('WEBGL_compressed_texture_etc');
 
+        // Register the GL context with emscripten and create the Engine.
         return Filament.Engine._create();
     };
 
@@ -171,6 +182,20 @@ Filament.loadClassExtensions = function() {
         this._setAmbientOcclusionOptions(options);
     };
 
+    /// setDepthOfFieldOptions ::method::
+    /// overrides ::argument:: Dictionary with one or more of the following properties: \
+    /// focusDistance, blurScale, maxApertureDiameter, enabled.
+    Filament.View.prototype.setDepthOfFieldOptions = function(overrides) {
+        const options = {
+            focusDistance: 10.0,
+            blurScale: 1.0,
+            maxApertureDiameter: 0.01,
+            enabled: false
+        };
+        Object.assign(options, overrides);
+        this._setDepthOfFieldOptions(options);
+    };
+
     /// setBloomOptions ::method::
     /// overrides ::argument:: Dictionary with one or more of the following properties: \
     /// dirtStrength, strength, resolution, anomorphism, levels, blendMode, threshold, enabled, dirt.
@@ -285,6 +310,17 @@ Filament.loadClassExtensions = function() {
         return result;
     };
 
+    Filament.gltfio$AssetLoader.prototype.createInstancedAsset = function(buffer, instances) {
+        buffer = getBufferDescriptor(buffer);
+        const asset = this._createInstancedAsset(buffer, instances.length);
+        buffer.delete();
+        const instancesVector = asset._getAssetInstances();
+        for (let i = 0; i < instancesVector.size(); i++) {
+            instances[i] = instancesVector.get(i);
+        }
+        return asset;
+    };
+
     // See the C++ documentation for ResourceLoader and AssetLoader. The JavaScript API differs in
     // that it takes two optional callbacks:
     //
@@ -323,7 +359,7 @@ Filament.loadClassExtensions = function() {
         }
 
         // Construct a resource loader and start decoding after all textures are fetched.
-        const resourceLoader = new Filament.gltfio$ResourceLoader(engine);
+        const resourceLoader = new Filament.gltfio$ResourceLoader(engine, false, false);
         const onComplete = () => {
             resourceLoader.asyncBeginLoad(asset);
 
@@ -356,5 +392,21 @@ Filament.loadClassExtensions = function() {
             buffer.delete();
             onFetched(name);
         });
+    };
+
+    Filament.gltfio$FilamentAsset.prototype.getEntities = function() {
+        return Filament.vectorToArray(this._getEntities());
+    };
+
+    Filament.gltfio$FilamentAsset.prototype.getEntitiesByName = function(name) {
+        return Filament.vectorToArray(this._getEntitiesByName(name));
+    };
+
+    Filament.gltfio$FilamentAsset.prototype.getEntitiesByPrefix = function(prefix) {
+        return Filament.vectorToArray(this._getEntitiesByPrefix(prefix));
+    };
+
+    Filament.gltfio$FilamentAsset.prototype.getLightEntities = function() {
+        return Filament.vectorToArray(this._getLightEntities());
     };
 };

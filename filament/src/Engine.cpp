@@ -59,6 +59,9 @@ using namespace backend;
 using namespace filaflat;
 
 FEngine* FEngine::create(Backend backend, Platform* platform, void* sharedGLContext) {
+    SYSTRACE_ENABLE();
+    SYSTRACE_CALL();
+
     FEngine* instance = new FEngine(backend, platform, sharedGLContext);
 
     slog.i << "FEngine (" << sizeof(void*) * 8 << " bits) created at " << instance << " "
@@ -131,8 +134,6 @@ FEngine::FEngine(Backend backend, Platform* platform, void* sharedGLContext) :
         mEngineEpoch(std::chrono::steady_clock::now()),
         mDriverBarrier(1)
 {
-    SYSTRACE_ENABLE();
-
     // we're assuming we're on the main thread here.
     // (it may not be the case)
     mJobSystem.adopt();
@@ -144,6 +145,8 @@ FEngine::FEngine(Backend backend, Platform* platform, void* sharedGLContext) :
  */
 
 void FEngine::init() {
+    SYSTRACE_CALL();
+
     // this must be first.
     mCommandStream = CommandStream(*mDriver, mCommandBufferQueue.getCircularBuffer());
     DriverApi& driverApi = getDriverApi();
@@ -193,6 +196,8 @@ void FEngine::init() {
             .irradiance(3, reinterpret_cast<const float3*>(sh))
             .build(*this));
 
+    mDefaultColorGrading = upcast(ColorGrading::Builder().build(*this));
+
     // Always initialize the default material, most materials' depth shaders fallback on it.
     mDefaultMaterial = upcast(
             FMaterial::DefaultMaterialBuilder()
@@ -202,9 +207,13 @@ void FEngine::init() {
     mPostProcessManager.init();
     mLightManager.init(*this);
     mDFG = std::make_unique<DFG>(*this);
+
+    mMainThreadId = std::this_thread::get_id();
 }
 
 FEngine::~FEngine() noexcept {
+    SYSTRACE_CALL();
+
     ASSERT_DESTRUCTOR(mTerminated, "Engine destroyed but not terminated!");
     delete mResourceAllocator;
     delete mDriver;
@@ -214,6 +223,11 @@ FEngine::~FEngine() noexcept {
 }
 
 void FEngine::shutdown() {
+    SYSTRACE_CALL();
+
+    ASSERT_PRECONDITION(std::this_thread::get_id() == mMainThreadId,
+            "Engine::shutdown() called from the wrong thread!");
+
 #ifndef NDEBUG
     // print out some statistics about this run
     size_t wm = mCommandBufferQueue.getHigWatermark();
@@ -242,6 +256,8 @@ void FEngine::shutdown() {
     destroy(mDefaultIblTexture);
     destroy(mDefaultIbl);
 
+    destroy(mDefaultColorGrading);
+
     destroy(mDefaultMaterial);
 
     /*
@@ -255,6 +271,7 @@ void FEngine::shutdown() {
     cleanupResourceList(mViews);
     cleanupResourceList(mScenes);
     cleanupResourceList(mSkyboxes);
+    cleanupResourceList(mColorGradings);
 
     // this must be done after Skyboxes and before materials
     destroy(mSkyboxMaterial);
@@ -397,29 +414,25 @@ int FEngine::loop() {
     if (mPlatform == nullptr) {
         mPlatform = DefaultPlatform::create(&mBackend);
         mOwnPlatform = true;
-        slog.d << "FEngine resolved backend: ";
+        const char* backend = nullptr;
         switch (mBackend) {
             case backend::Backend::NOOP:
-                slog.d << "Noop";
+                backend = "Noop";
                 break;
-
             case backend::Backend::OPENGL:
-                slog.d << "OpenGL";
+                backend = "OpenGL";
                 break;
-
             case backend::Backend::VULKAN:
-                slog.d << "Vulkan";
+                backend = "Vulkan";
                 break;
-
             case backend::Backend::METAL:
-                slog.d << "Metal";
+                backend = "Metal";
                 break;
-
             default:
-                slog.d << "Unknown";
+                backend = "Unknown";
                 break;
         }
-        slog.d << io::endl;
+        slog.d << "FEngine resolved backend: " << backend << io::endl;
         if (mPlatform == nullptr) {
             slog.e << "Selected backend not supported in this build." << io::endl;
             mDriverBarrier.latch();
@@ -526,6 +539,10 @@ FMaterial* FEngine::createMaterial(const Material::Builder& builder) noexcept {
 
 FSkybox* FEngine::createSkybox(const Skybox::Builder& builder) noexcept {
     return create(mSkyboxes, builder);
+}
+
+FColorGrading* FEngine::createColorGrading(const ColorGrading::Builder& builder) noexcept {
+    return create(mColorGradings, builder);
 }
 
 FStream* FEngine::createStream(const Stream::Builder& builder) noexcept {
@@ -689,6 +706,10 @@ inline bool FEngine::destroy(const FScene* p) {
 
 inline bool FEngine::destroy(const FSkybox* p) {
     return terminateAndDestroy(p, mSkyboxes);
+}
+
+inline bool FEngine::destroy(const FColorGrading* p) {
+    return terminateAndDestroy(p, mColorGradings);
 }
 
 UTILS_NOINLINE
@@ -890,6 +911,10 @@ bool Engine::destroy(const Scene* p) {
 }
 
 bool Engine::destroy(const Skybox* p) {
+    return upcast(this)->destroy(upcast(p));
+}
+
+bool Engine::destroy(const ColorGrading* p) {
     return upcast(this)->destroy(upcast(p));
 }
 

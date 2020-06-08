@@ -78,8 +78,10 @@ public:
      *
      * @param asset The asset to view.
      * @param scale Adds a transform to the root to fit the asset into a unit cube at the origin.
+     * @param instanceToAnimate Optional instance from which to get the animator.
      */
-    void populateScene(FilamentAsset* asset, bool scale);
+    void populateScene(FilamentAsset* asset, bool scale,
+            FilamentInstance* instanceToAnimate = nullptr);
 
     /**
      * Removes the current asset from the viewer.
@@ -263,13 +265,15 @@ SimpleViewer::SimpleViewer(filament::Engine* engine, filament::Scene* scene, fil
     if (mEnableSunlight) {
         mScene->addEntity(mSunlight);
     }
+    view->setAmbientOcclusionOptions({ .upsampling = View::QualityLevel::HIGH });
 }
 
 SimpleViewer::~SimpleViewer() {
     mEngine->destroy(mSunlight);
 }
 
-void SimpleViewer::populateScene(FilamentAsset* asset, bool scale) {
+void SimpleViewer::populateScene(FilamentAsset* asset, bool scale,
+        FilamentInstance* instanceToAnimate) {
     if (mAsset != asset) {
         removeAsset();
         mAsset = asset;
@@ -277,7 +281,7 @@ void SimpleViewer::populateScene(FilamentAsset* asset, bool scale) {
             mAnimator = nullptr;
             return;
         }
-        mAnimator = asset->getAnimator();
+        mAnimator = instanceToAnimate ? instanceToAnimate->getAnimator() : asset->getAnimator();
         if (scale) {
             auto& tcm = mEngine->getTransformManager();
             auto root = tcm.getInstance(mAsset->getRoot());
@@ -303,9 +307,9 @@ void SimpleViewer::populateScene(FilamentAsset* asset, bool scale) {
 
 void SimpleViewer::removeAsset() {
     if (mAsset) {
-        const auto begin = mAsset->getEntities();
-        const auto end = begin + mAsset->getEntityCount();
-        for (auto entity = begin; entity != end; ++entity) {
+        const auto *const begin = mAsset->getEntities();
+        const auto *const end = begin + mAsset->getEntityCount();
+        for (const auto *entity = begin; entity != end; ++entity) {
             mScene->remove(*entity);
         }
     }

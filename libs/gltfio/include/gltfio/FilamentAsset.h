@@ -24,14 +24,13 @@
 
 namespace filament {
     class Engine;
-    class IndexBuffer;
     class MaterialInstance;
-    class VertexBuffer;
 }
 
 namespace gltfio {
 
 class Animator;
+class FilamentInstance;
 
 /**
  * \class FilamentAsset FilamentAsset.h gltfio/FilamentAsset.h
@@ -40,8 +39,8 @@ class Animator;
  * For usage instructions, see the documentation for AssetLoader.
  *
  * This class owns a hierarchy of entities that have been loaded from a glTF asset. Every entity has
- * a filament::TransformManager component, and some entities also have \c Name and/or \c Renderable
- * components.
+ * a filament::TransformManager component, and some entities also have \c Name, \c Renderable, or
+ * \c Light components.
  *
  * In addition to the aforementioned entities, an asset has strong ownership over a list of
  * filament::VertexBuffer, filament::IndexBuffer, filament::MaterialInstance, filament::Texture,
@@ -77,7 +76,13 @@ public:
      */
     size_t getLightEntityCount() const noexcept;
 
-    /** Gets the transform root for the asset, which has no matching glTF node. */
+    /**
+     * Gets the transform root for the asset, which has no matching glTF node.
+     *
+     * This node exists for convenience, allowing users to transform the entire asset. For instanced
+     * assets, this is a "super root" where each of its children is a root in a particular instance.
+     * This allows users to transform all instances en masse if they wish to do so.
+     */
     utils::Entity getRoot() const noexcept;
 
     /**
@@ -130,9 +135,42 @@ public:
     /** Gets the NameComponentManager label for the given entity, if it exists. */
     const char* getName(utils::Entity) const noexcept;
 
+    /** Returns the first entity with the given name, or 0 if none exist. */
+    utils::Entity getFirstEntityByName(const char* name) noexcept;
+
+    /**
+     * Gets a list of entities with the given name.
+     *
+     * @param name Null-terminated string to match.
+     * @param entities Pointer to an array to populate.
+     * @param maxCount Maximum number of entities to retrieve.
+     *
+     * @return If entities is non-null, the number of entities written to the entity pointer.
+     * Otherwise this returns the number of entities with the given name.
+     */
+    size_t getEntitiesByName(const char* name, utils::Entity* entities,
+            size_t maxCount) const noexcept;
+
+    /**
+     * Gets a list of entities whose names start with the given prefix.
+     *
+     * @param prefix Null-terminated prefix string to match.
+     * @param entities Pointer to an array to populate.
+     * @param maxCount Maximum number of entities to retrieve.
+     *
+     * @return If entities is non-null, the number of entities written to the entity pointer.
+     * Otherwise this returns the number of entities with the given prefix.
+     */
+    size_t getEntitiesByPrefix(const char* prefix, utils::Entity* entities,
+            size_t maxCount) const noexcept;
+
     /**
      * Lazily creates the animation engine or returns it from the cache.
+     *
      * The animator is owned by the asset and should not be manually deleted.
+     * The first time this is called, it must be called before FilamentAsset::releaseSourceData().
+     * If the asset is instanced, this returns a "master" animator that controls all instances.
+     * To animate each instance individually, use \see FilamentInstance.
      */
     Animator* getAnimator() noexcept;
 
@@ -162,6 +200,10 @@ public:
     const void* getSourceAsset() noexcept;
 
     /*! \cond PRIVATE */
+
+    FilamentInstance** getAssetInstances() noexcept;
+    size_t getAssetInstanceCount() const noexcept;
+
 protected:
     FilamentAsset() noexcept = default;
     ~FilamentAsset() = default;
