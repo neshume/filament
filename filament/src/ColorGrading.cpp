@@ -63,12 +63,41 @@ struct ColorGrading::BuilderDetails {
     float3 offset           = {0.0f};
     float3 power            = {1.0f};
     // Color adjustments
-    float  saturation       = 1.0f;
     float  contrast         = 1.0f;
+    float  vibrance         = 1.0f;
+    float  saturation       = 1.0f;
     // Curves
     float3 shadowGamma      = {1.0f};
     float3 midPoint         = {1.0f};
     float3 highlightScale   = {1.0f};
+    // Keep last
+    bool hasAdjustments     = false;
+
+    bool operator!=(const BuilderDetails &rhs) const {
+        return !(rhs == *this);
+    }
+
+    bool operator==(const BuilderDetails &rhs) const {
+        // Note: Do NOT compare hasAdjustments
+        return toneMapping == rhs.toneMapping &&
+               whiteBalance == rhs.whiteBalance &&
+               outRed == rhs.outRed &&
+               outGreen == rhs.outGreen &&
+               outBlue == rhs.outBlue &&
+               shadows == rhs.shadows &&
+               midtones == rhs.midtones &&
+               highlights == rhs.highlights &&
+               tonalRanges == rhs.tonalRanges &&
+               slope == rhs.slope &&
+               offset == rhs.offset &&
+               power == rhs.power &&
+               contrast == rhs.contrast &&
+               vibrance == rhs.vibrance &&
+               saturation == rhs.saturation &&
+               shadowGamma == rhs.shadowGamma &&
+               midPoint == rhs.midPoint &&
+               highlightScale == rhs.highlightScale;
+    }
 };
 
 using BuilderType = ColorGrading;
@@ -123,13 +152,18 @@ ColorGrading::Builder& ColorGrading::Builder::slopeOffsetPower(
     return *this;
 }
 
-ColorGrading::Builder& ColorGrading::Builder::saturation(float saturation) noexcept {
-    mImpl->saturation = clamp(saturation, 0.0f, 2.0f);
+ColorGrading::Builder& ColorGrading::Builder::contrast(float contrast) noexcept {
+    mImpl->contrast = clamp(contrast, 0.0f, 2.0f);
     return *this;
 }
 
-ColorGrading::Builder& ColorGrading::Builder::contrast(float contrast) noexcept {
-    mImpl->contrast = clamp(contrast, 0.0f, 2.0f);
+ColorGrading::Builder& ColorGrading::Builder::vibrance(float vibrance) noexcept {
+    mImpl->vibrance = clamp(vibrance, 0.0f, 2.0f);
+    return *this;
+}
+
+ColorGrading::Builder& ColorGrading::Builder::saturation(float saturation) noexcept {
+    mImpl->saturation = clamp(saturation, 0.0f, 2.0f);
     return *this;
 }
 
@@ -142,6 +176,13 @@ ColorGrading::Builder& ColorGrading::Builder::curves(
 }
 
 ColorGrading* ColorGrading::Builder::build(Engine& engine) {
+    // We want to see if any of the default adjustment values have been modified
+    // We skip the tonemapping operator on purpose since we always want to apply it
+    BuilderDetails defaults;
+    defaults.toneMapping = mImpl->toneMapping;
+    bool hasAdjustments = defaults != *mImpl;
+    mImpl->hasAdjustments = hasAdjustments;
+
     return upcast(engine).createColorGrading(*this);
 }
 
@@ -201,13 +242,27 @@ ColorTransform selectLogToLinearTransform(ColorGrading::ToneMapping toneMapping)
     }
 }
 
-mat3f selectColorGradingTransform(ColorGrading::ToneMapping toneMapping) {
+mat3f selectColorGradingTransformIn(ColorGrading::ToneMapping toneMapping) {
     switch (toneMapping) {
         case ColorGrading::ToneMapping::ACES_LEGACY:
         case ColorGrading::ToneMapping::ACES:
             return sRGB_to_AP1;
+        case ColorGrading::ToneMapping::FILMIC:
+            return mat3f{}; // stay in sRGB
         default:
-            return mat3f{};
+            return sRGB_to_REC2020;
+    }
+}
+
+mat3f selectColorGradingTransformOut(ColorGrading::ToneMapping toneMapping) {
+    switch (toneMapping) {
+        case ColorGrading::ToneMapping::ACES_LEGACY:
+        case ColorGrading::ToneMapping::ACES:
+            return AP1_to_sRGB;
+        case ColorGrading::ToneMapping::FILMIC:
+            return mat3f{}; // stay in sRGB
+        default:
+            return REC2020_to_sRGB;
     }
 }
 
@@ -257,13 +312,28 @@ inline float3 colorDecisionList(float3 v, float3 slope, float3 offset, float3 po
 }
 
 UTILS_ALWAYS_INLINE
-inline constexpr float3 colorAdjustments(float3 v, float contrast, float saturation) {
+inline constexpr float3 contrast(float3 v, float contrast) {
     // Matches contrast as applied in DaVinci Resolve
-    v = MIDDLE_GRAY_ACEScct + contrast * (v - MIDDLE_GRAY_ACEScct);
+    return MIDDLE_GRAY_ACEScct + contrast * (v - MIDDLE_GRAY_ACEScct);
+}
 
-    // S-2016-001 uses Rec.709 luma coefficients for the ASC CDL, including saturation
-    float3 y = dot(v, LUMA_REC709);
+UTILS_ALWAYS_INLINE
+inline constexpr float3 saturation(float3 v, float saturation) {
+    const float3 y = dot(v, LUMA_REC709);
     return y + saturation * (v - y);
+}
+
+UTILS_ALWAYS_INLINE
+inline float3 vibrance(float3 v, float vibrance) {
+    float r = v.r - max(v.g, v.b);
+    float s = (vibrance - 1.0f) / (1.0f + std::exp(-r * 3.0f)) + 1.0f;
+    float3 l{(1.0f - s) * LUMA_REC709};
+    return float3{
+        dot(v, l + float3{s, 0.0f, 0.0f}),
+        dot(v, l + float3{0.0f, s, 0.0f}),
+        dot(v, l + float3{0.0f, 0.0f, s}),
+    };
+
 }
 
 UTILS_ALWAYS_INLINE
@@ -307,7 +377,8 @@ ColorTransform selectToneMapping(ColorGrading::ToneMapping toneMapping) {
 //------------------------------------------------------------------------------
 
 struct Config {
-    mat3f colorGradingTransform;
+    mat3f colorGradingTransformIn;
+    mat3f colorGradingTransformOut;
     float3 lumaTransform;
     ColorTransform linearToLogTransform;
     ColorTransform logToLinearTransform;
@@ -324,11 +395,12 @@ FColorGrading::FColorGrading(FEngine& engine, const Builder& builder) {
     void* const data = malloc(lutElementCount * elementSize);
 
     Config config{
-        .colorGradingTransform = selectColorGradingTransform(builder->toneMapping),
-        .lumaTransform         = selectLumaTransform(builder->toneMapping),
-        .linearToLogTransform  = selectLinearToLogTransform(builder->toneMapping),
-        .logToLinearTransform  = selectLogToLinearTransform(builder->toneMapping),
-        .toneMapper            = selectToneMapping(builder->toneMapping)
+        .colorGradingTransformIn  = selectColorGradingTransformIn(builder->toneMapping),
+        .colorGradingTransformOut = selectColorGradingTransformOut(builder->toneMapping),
+        .lumaTransform            = selectLumaTransform(builder->toneMapping),
+        .linearToLogTransform     = selectLinearToLogTransform(builder->toneMapping),
+        .logToLinearTransform     = selectLogToLinearTransform(builder->toneMapping),
+        .toneMapper               = selectToneMapping(builder->toneMapping)
     };
 
     //auto now = std::chrono::steady_clock::now();
@@ -348,47 +420,62 @@ FColorGrading::FColorGrading(FEngine& engine, const Builder& builder) {
                     // LogC encoding
                     v = LogC_to_linear(v);
 
-                    // White balance
-                    v = chromaticAdaptation(v, builder->whiteBalance);
+                    // TODO: Peformed in sRGB, should be in Rec.2020 or AP1
+                    if (builder->hasAdjustments) {
+                        // White balance
+                        v = chromaticAdaptation(v, builder->whiteBalance);
+                    }
 
                     // Convert to color grading color space
-                    v = config.colorGradingTransform * v;
+                    v = config.colorGradingTransformIn * v;
 
-                    // Kill negative values before the next transforms
-                    v = max(v, 0.0f);
+                    if (builder->hasAdjustments) {
+                        // Kill negative values before the next transforms
+                        v = max(v, 0.0f);
 
-                    // Channel mixer
-                    v = channelMixer(v, builder->outRed, builder->outGreen, builder->outBlue);
+                        // Channel mixer
+                        v = channelMixer(v, builder->outRed, builder->outGreen, builder->outBlue);
 
-                    // Shadows/mid-tones/highlights
-                    v = tonalRanges(v, config.lumaTransform,
-                            builder->shadows, builder->midtones, builder->highlights,
-                            builder->tonalRanges);
+                        // Shadows/mid-tones/highlights
+                        v = tonalRanges(v, config.lumaTransform,
+                                builder->shadows, builder->midtones, builder->highlights,
+                                builder->tonalRanges);
 
-                    // The adjustments below behave better in log space using the ACEScct
-                    // color space.
-                    v = config.linearToLogTransform(v);
+                        // The adjustments below behave better in log space using the ACEScct
+                        // color space.
+                        v = config.linearToLogTransform(v);
 
-                    // ASC CDL
-                    v = colorDecisionList(v, builder->slope, builder->offset, builder->power);
+                        // ASC CDL
+                        v = colorDecisionList(v, builder->slope, builder->offset, builder->power);
 
-                    // Contrast and saturation
-                    v = colorAdjustments(v, builder->contrast, builder->saturation);
+                        // Contrast in log space
+                        v = contrast(v, builder->contrast);
 
-                    v = config.logToLinearTransform(v);
+                        // Back to linear space
+                        v = config.logToLinearTransform(v);
 
-                    // Kill negative values before tone mapping
-                    v = max(v, 0.0f);
+                        // Vibrance in linear space
+                        v = vibrance(v, builder->vibrance);
 
-                    // RGB curves
-                    v = curves(v, builder->shadowGamma, builder->midPoint, builder->highlightScale);
+                        // Saturation in linear space
+                        v = saturation(v, builder->saturation);
+
+                        // Kill negative values before tone mapping
+                        v = max(v, 0.0f);
+
+                        // RGB curves
+                        v = curves(v,
+                                builder->shadowGamma, builder->midPoint, builder->highlightScale);
+                    }
 
                     // Tone mapping
                     v = config.toneMapper(v);
 
-                    // Apply OECF
+                    // Convert to output color space
                     // TODO: allow to customize the output color space,
-                    //       here we assume we are in the sRGB gamut already
+                    v = config.colorGradingTransformOut * v;
+
+                    // Apply OECF
                     v = OECF_sRGB(v);
 
                     *p++ = half4{v, 0.0f};

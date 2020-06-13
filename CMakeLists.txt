@@ -511,6 +511,10 @@ if (FILAMENT_BUILD_FILAMAT)
     add_subdirectory(${EXTERNAL}/glslang/tnt)
     add_subdirectory(${EXTERNAL}/spirv-cross/tnt)
     add_subdirectory(${LIBRARIES}/filamat)
+
+    # the material debugger requires filamat
+    add_subdirectory(${EXTERNAL}/civetweb/tnt)
+    add_subdirectory(${LIBRARIES}/matdbg)
 endif()
 
 if (FILAMENT_SUPPORTS_VULKAN)
@@ -540,15 +544,14 @@ if (NOT ANDROID AND NOT WEBGL AND NOT IOS)
     add_subdirectory(${LIBRARIES}/filamentapp)
     add_subdirectory(${LIBRARIES}/filagui)
     add_subdirectory(${LIBRARIES}/imageio)
-    add_subdirectory(${LIBRARIES}/matdbg)
 
     add_subdirectory(${FILAMENT}/java/filamat)
     add_subdirectory(${FILAMENT}/java/filament)
+    add_subdirectory(${FILAMENT}/java/gltfio)
 
     add_subdirectory(${FILAMENT}/samples)
 
     add_subdirectory(${EXTERNAL}/astcenc/tnt)
-    add_subdirectory(${EXTERNAL}/civetweb/tnt)
     add_subdirectory(${EXTERNAL}/etc2comp)
     add_subdirectory(${EXTERNAL}/imgui/tnt)
     add_subdirectory(${EXTERNAL}/libassimp/tnt)

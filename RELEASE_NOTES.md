@@ -5,6 +5,8 @@ A new header is inserted each time a *tag* is created.
 
 ## Next release
 
+- gltf_viewer now supports viewing with glTF cameras.
+- gltfio now supports importing glTF cameras.
 - gltfio now supports simple instancing of entire assets.
 - gltfio has improved performance and assumes assets are well-formed.
 - gltfio now supports name and prefix lookup for entities.
@@ -16,8 +18,8 @@ A new header is inserted each time a *tag* is created.
 - Tone mapping is now applied via a LUT.
 - `View::setToneMapping` is deprecated, use `View::setColorGrading` instead. (⚠️ **API change**)
 - Color grading capabilities per View: white balance (temperature/tint), channel mixer,
-  tonal ranges (shadows/mid-tones/highlights), ASC CDL (slope/offset/power), contrast, saturation,
-  and curves.
+  tonal ranges (shadows/mid-tones/highlights), ASC CDL (slope/offset/power), contrast, vibrance,
+  saturation, and curves.
 - Fixed bug in the Metal backend when SSR and MSAA were turned on.
 - Fixed Metal issue with `BufferDescriptor` and `PixelBufferDescriptor`s not being called on
   the application thread.
